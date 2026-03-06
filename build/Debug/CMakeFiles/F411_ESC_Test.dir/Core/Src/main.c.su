@@ -1,0 +1,15 @@
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:98:13:UART_SendString	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:103:17:ESC_ClampPulseUs	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:118:13:ESC_ApplyPulseUs	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:124:13:ESC_SetPulseUs	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:129:13:ESC_SetDutyPercent	24	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:142:13:ESC_SetState	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:155:13:ESC_EmergencyStop	8	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:161:13:UART_NormalizeCommand	24	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:172:13:UART_SanitizeCommand	24	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:205:16:UART_TryParseUint16	24	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:219:13:ESC_ProcessCommand	24	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:374:13:UART_ProcessInput	16	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:418:5:main	8	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:477:6:SystemClock_Config	88	static
+D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/Core/Src/main.c:526:6:Error_Handler	4	static,ignoring_inline_asm

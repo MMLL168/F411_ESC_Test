@@ -1,0 +1,8 @@
+{
+	"InstallScripts" : 
+	[
+		"D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/build/Debug/cmake_install.cmake",
+		"D:/Work_202506/STM32CubeIDE_Project/F411_ESC_Test/build/Debug/cmake/stm32cubemx/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
