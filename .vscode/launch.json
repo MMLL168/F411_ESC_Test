@@ -1,0 +1,23 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "STM32F411 ST-Link (Cortex-Debug)",
+      "type": "cortex-debug",
+      "request": "launch",
+      "preLaunchTask": "Build Debug (CMake Preset)",
+      "servertype": "stlink",
+      "serverpath": "C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.stlink-gdb-server.win32_2.2.400.202601091506/tools/bin/ST-LINK_gdbserver.exe",
+      "stm32cubeprogrammer": "C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.cubeprogrammer.win32_2.2.400.202601091506/tools/bin",
+      "cwd": "${workspaceFolder}",
+      "executable": "${workspaceFolder}/build/Debug/F411_ESC_Test.elf",
+      "armToolchainPath": "C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin",
+      "gdbPath": "C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin/arm-none-eabi-gdb.exe",
+      "device": "STM32F411RE",
+      "interface": "swd",
+      "serialNumber": "066EFF525750877267200844",
+      "showDevDebugOutput": "raw",
+      "runToEntryPoint": "main"
+    }
+  ]
+}

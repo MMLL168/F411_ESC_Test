@@ -140,3 +140,341 @@
   - 急停目前定義為 compare=0，若特定 ESC 需最小油門脈寬停止（例如 1000us），可再調整策略。
 - 後續處置：
   - 建議下一步加入 arming 狀態機與指令白名單（未解鎖僅允許安全命令）。
+
+## [2026-03-06 10:24:16] 作業紀錄 #006 - 加入 ESC Arming 狀態機與指令白名單
+- 目的：
+  - 強化 ESC 安全控制流程，避免未解鎖即接收油門命令，並加入 ESTOP 復歸機制。
+- 觸發原因：
+  - 使用者要求「繼續實作」，目前進度由基礎 PWM 控制進入安全化階段。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\Core_Src_main.c\Core_Src_main.c.20260306_102416.bak`。
+  - 備份份數：`2`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_102416.bak`。
+  - 備份份數：`4`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 在 `main.c` 新增狀態列舉 `ESC_STATE_DISARMED / ESC_STATE_ARMED / ESC_STATE_ESTOP`。
+  - 新增安全控制函式：
+    - `ESC_SetState()`：集中處理狀態轉換與對應輸出（`DISARMED` 回 1000us，`ESTOP` 強制 0us）。
+    - `ESC_ApplyPulseUs()`：統一 compare 寫入邏輯。
+    - `UART_NormalizeCommand()`：指令正規化為大寫，降低大小寫輸入差異。
+  - 調整命令流程：
+    - 新增 `ARM`、`DISARM`、`STATUS`、`CLEAR/RESET` 命令。
+    - `1000/1500/2000` 僅允許在 `ARMED` 狀態執行；否則回覆錯誤。
+    - `STOP/ESTOP/S` 立即進入 `ESTOP`，需 `CLEAR` 才可回到 `DISARMED`。
+  - 啟動訊息更新：
+    - 開機預設 `DISARMED(1000us)`，提示先 `ARM` 再下油門命令。
+- 驗證結果：
+  - `main.c` 新增邏輯語法可通過；未出現新增函式/型別相關錯誤。
+  - 剩餘為既有 HAL 索引告警（`__IO`、`FLASH_LATENCY_3` 等），屬開發環境索引設定議題。
+- 目前階段結論：
+  - 已完成第 2 階段「安全化控制（arming + whitelist + estop clear）」。
+  - 下一階段可進入「板上測試驗證與命令回覆格式優化」。
+- Git 流程：
+  - 依使用者偏好，本次僅保留本地修改，不進行推送，待使用者確認成功後再 push。
+
+## [2026-03-06 10:52:09] 作業紀錄 #007 - 設定 VS Code 偵錯入口並清除 main.c 問題 9 筆
+- 目的：
+  - 回應使用者要求，確認應選用的偵錯工具，並先排除 Problems 中 `main.c` 的 9 筆錯誤。
+- 觸發原因：
+  - 偵錯選單需明確指引；同時 `main.c` 出現 `__IO`、`RCC_*`、`FLASH_LATENCY_3`、`uint32_t` 相關 IntelliSense 錯誤。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/settings.json`
+  - 檢查結果：已建立備份 `backup\.vscode_settings.json\.vscode_settings.json.20260306_103445.bak`、`backup\.vscode_settings.json\.vscode_settings.json.20260306_105010.bak`。
+  - 備份份數：`2`（符合最多保留 5 份規則）。
+  - 目標檔案：`.vscode/c_cpp_properties.json`
+  - 檢查結果：已建立備份 `backup\.vscode_c_cpp_properties.json\.vscode_c_cpp_properties.json.20260306_105208.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`Core/Inc/main.h`
+  - 檢查結果：已建立備份 `backup\Core_Inc_main.h\Core_Inc_main.h.20260306_103933.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：本階段多次修改前均已建立備份，且自動維持最多 5 份。
+- 執行動作細節：
+  - 新增 `.vscode/launch.json`：建立 `Cortex-Debug` 啟動設定（ST-Link、執行檔 `build/Debug/F411_ESC_Test.elf`）。
+  - 更新 `.vscode/settings.json`：保留 CMake Debug preset，移除造成解析偏差的 `C_Cpp.default.configurationProvider`。
+  - 新增/更新 `.vscode/c_cpp_properties.json`：
+    - 補齊 STM32 HAL/CMSIS includePath 與 `USE_HAL_DRIVER`、`STM32F411xE` 巨集。
+    - 指定實機存在的編譯器路徑：
+      - `C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin/arm-none-eabi-gcc.exe`
+  - 補強 `Core/Inc/main.h`：加入 `#include <stdint.h>`，提升型別解析穩定性。
+- 驗證結果：
+  - `get_errors` 針對 `Core/Src/main.c`：`No errors found`。
+  - 使用者所述 9 個 Problems 已清除。
+- 偵錯工具建議：
+  - 應選擇 `Cortex Debug`（不是一般 `C++ (GDB/LLDB)`）。
+- Git 流程：
+  - 依使用者偏好，本次仍僅本地修改，未執行推送，待使用者確認成功後再 push。
+
+## [2026-03-06 12:21:27] 作業紀錄 #008 - 修復 CMake Preset 卡住與 `.elf` 遺失問題
+- 目的：
+  - 排除偵錯前置錯誤 `Unable to find executable file .../build/Debug/F411_ESC_Test.elf` 與 CMake 卡在「沒有使用中的設定預設」。
+- 觸發原因：
+  - 使用者回報 CMake configure 卡很久並彈出錯誤視窗，導致無法進入 Cortex Debug。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/settings.json`
+  - 檢查結果：本次已建立備份 `...20260306_121143.bak`、`...20260306_121246.bak`。
+  - 備份份數：`4`（符合最多保留 5 份規則）。
+  - 目標檔案：`cmake/gcc-arm-none-eabi.cmake`
+  - 檢查結果：本次已建立備份 `...20260306_121431.bak`、`...20260306_121802.bak`。
+  - 備份份數：`2`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：本次修復過程多次修改前皆有備份，且最後備份 `...20260306_122127.bak`，維持 `5` 份。
+- 根因分析：
+  - `.vscode/settings.json` 內存在 `cube-cmake` 相關設定，與 CMake Tools 的 preset 流程衝突。
+  - 系統 PATH 未含 `arm-none-eabi-gcc/g++`，導致 configure 無法找到編譯器。
+  - toolchain 使用完整前綴路徑時，Windows 下需明確帶 `.exe` 才會被 CMake 視為有效編譯器。
+- 執行動作細節：
+  - 調整 `.vscode/settings.json`：
+    - 保留 `cmake.useCMakePresets=always`、`Debug` preset 設定。
+    - 移除 `cube-cmake` 衝突設定。
+  - 更新 `cmake/gcc-arm-none-eabi.cmake`：
+    - 新增 STM32CubeIDE 內建工具鏈路徑偵測 fallback。
+    - 依 `WIN32` 自動補 `.exe` 到 `gcc/g++/objcopy/size`。
+  - 使用 CMake Tools 重跑建置。
+- 結果：
+  - CMake Build 成功（result code `0`）。
+  - 成功產生 `build/Debug/F411_ESC_Test.elf`。
+  - 目前可回到 `Cortex Debug` 直接啟動。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修復，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 12:23:33] 作業紀錄 #009 - 修復 Cortex-Debug 找不到 GDB
+- 目的：
+  - 排除偵錯啟動時錯誤：`GDB executable "arm-none-eabi-gdb.exe" was not found`。
+- 觸發原因：
+  - 使用者回報即使 `.elf` 已產生，仍因 GDB 路徑未明確設定而無法啟動除錯。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/launch.json`
+  - 檢查結果：已建立備份 `backup\.vscode_launch.json\.vscode_launch.json.20260306_122333.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_122333.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 掃描本機工具鏈，定位 `arm-none-eabi-gdb.exe`：
+    - `C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin/arm-none-eabi-gdb.exe`
+  - 更新 `.vscode/launch.json`：
+    - 新增 `armToolchainPath` 指向上述 `tools/bin`。
+    - 新增 `gdbPath` 指向 `arm-none-eabi-gdb.exe`。
+- 結果：
+  - Cortex-Debug 啟動所需 GDB 路徑已明確，避免再依賴 PATH 尋找失敗。
+- 後續處置：
+  - 若後續再出現錯誤，下一個可能是 ST-Link GDB Server 路徑或連線埠問題，再依錯誤訊息逐步排除。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修復，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 12:26:50] 作業紀錄 #010 - 修復 ST-LINK GDB Server 異常退出
+- 目的：
+  - 排除錯誤：`ST-LINK GDB Server Quit Unexpectedly`，使 Cortex-Debug 可穩定啟動。
+- 觸發原因：
+  - 使用者回報即使找到 gdb，仍在除錯啟動後立即退出。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/launch.json`
+  - 檢查結果：已建立備份 `backup\.vscode_launch.json\.vscode_launch.json.20260306_122650.bak`。
+  - 備份份數：`2`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_122650.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 診斷結果：
+  - 使用 `STM32_Programmer_CLI -c port=swd mode=UR -q` 驗證：
+    - ST-Link 可正常連線，板卡 `NUCLEO-F411RE`、電壓 `3.26V`、裝置 `STM32F411xC/E`。
+  - 判定問題非硬體斷線，而是 Cortex-Debug 對 server/工具路徑自動偵測不穩。
+- 執行動作細節：
+  - 更新 `.vscode/launch.json`，明確指定：
+    - `serverpath` -> `ST-LINK_gdbserver.exe`
+    - `stm32cubeprogrammer` -> CubeProgrammer `tools/bin`
+    - `armToolchainPath`、`gdbPath`
+    - `interface: swd`
+    - `serialNumber: 066EFF525750877267200844`
+    - `showDevDebugOutput: raw`（便於後續問題追蹤）
+- 結果：
+  - 已完成設定層修復，下一次 F5 可直接驗證是否正常停在 `main`。
+- 後續處置：
+  - 若仍異常，依 raw output 進一步針對 reset mode 或 attach 時序微調。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修復，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 13:31:58] 作業紀錄 #011 - UART 支援任意 PWM 調整（Pulse 與 Duty）
+- 目的：
+  - 依使用者需求，讓 UART 可任意調整 PWM，而不僅限 1000/1500/2000 固定檔位。
+- 觸發原因：
+  - 使用者明確提出「UART 傳送可任意調整 PWM Duty」。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\\Core_Src_main.c\\Core_Src_main.c.20260306_133157.bak`。
+  - 備份份數：`3`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_133157.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 在 `main.c` 新增 `#include <stdlib.h>`，用於數值字串解析。
+  - 新增函式：
+    - `UART_TryParseUint16()`：檢查並解析數值命令。
+    - `ESC_SetDutyPercent()`：將 `0..100%` 轉成 TIM3 compare 值。
+  - 擴充 `ESC_ProcessCommand()` 命令：
+    - `PWM <1000..2000>`：以脈寬(us)設定 ESC PWM。
+    - `DUTY <0..100>`：以 duty 百分比設定 PWM。
+    - 保留既有快捷：`1000/1500/2000` 與 `1/5/2`。
+    - 保留安全機制：未 `ARM` 時拒絕調整命令。
+  - 啟動提示字串更新：加入新命令說明。
+- 驗證結果：
+  - `main.c` 問題檢查無新增編譯錯誤。
+- 使用方式（UART，需先 `ARM`）：
+  - `PWM 1234` -> 設定脈寬 1234us（範圍 1000~2000）。
+  - `DUTY 25` -> 設定 duty 25%。
+  - `1500` 或 `5` -> 舊快捷命令仍可用。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修改，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 13:39:27] 作業紀錄 #012 - 修復 Debug 偶發停在 main 內舊斷點位置
+- 目的：
+  - 回應使用者回報「按下 Debug 後偶爾停在 main 內舊位置（如 310 行）而非 main 起始處」。
+- 觸發原因：
+  - 目前 launch 流程在某些 restart 情況下可能沿用前次執行狀態與既有斷點命中時序。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/launch.json`
+  - 檢查結果：已建立備份 `backup\\.vscode_launch.json\\.vscode_launch.json.20260306_133927.bak`。
+  - 備份份數：`3`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_133927.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 更新 `.vscode/launch.json`，新增啟動/重啟後命令：
+    - `monitor reset halt`
+    - `thbreak main`
+    - `continue`
+  - 同步套用到 `postLaunchCommands` 與 `postRestartCommands`。
+- 預期效果：
+  - 每次 Launch/Restart 都先硬體 reset 並 halt，再以臨時斷點進入 `main`，降低跳到舊命中點的機率。
+- 建議操作：
+  - 第一次測試前先 `Remove All Breakpoints`，再按 F5 驗證是否穩定停在 `main` 入口。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修正，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 13:41:34] 作業紀錄 #013 - 回退不相容 reset 指令修復 Protocol error (Rcmd:05)
+- 目的：
+  - 修復錯誤：`Failed to launch GDB: Protocol error with Rcmd: 05 (monitor reset halt)`。
+- 觸發原因：
+  - 先前為強制停在 main 新增 `postLaunchCommands/postRestartCommands`，但 ST-LINK GDB Server 不接受 `monitor reset halt` 指令格式，造成啟動失敗。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/launch.json`
+  - 檢查結果：已建立備份 `backup\\.vscode_launch.json\\.vscode_launch.json.20260306_134134.bak`。
+  - 備份份數：`4`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_134134.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 從 `.vscode/launch.json` 移除：
+    - `postLaunchCommands`
+    - `postRestartCommands`
+  - 保留 `runToEntryPoint: main` 讓 Cortex-Debug 使用自身穩定流程停在 main。
+- 結果：
+  - 已排除造成 GDB 啟動失敗的非相容 monitor 指令。
+- 建議操作：
+  - 啟動前先 `Remove All Breakpoints`，再 `F5`。
+  - 若要重跑流程，使用 `Stop` 後重新 `F5`，避免在舊停點直接 `Restart`。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修正，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 13:49:45] 作業紀錄 #014 - 修復 Debug 偶發停在舊行號（先自動 Build）
+- 目的：
+  - 回應使用者回報：無可見中斷點但 Debug 偶爾跳到 `main.c` 舊位置（如 310 行）。
+- 觸發原因：
+  - 問題常見於除錯時載入舊版 ELF/符號，行號與目前編輯內容不一致。
+  - 此工作站命令列 `cmake` 不在 PATH，導致先前無法穩定做到每次啟動前重建。
+- 事前備份檢查：
+  - 目標檔案：`.vscode/launch.json`
+  - 檢查結果：已建立備份 `backup\\.vscode_launch.json\\.vscode_launch.json.20260306_134528.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+  - 目標檔案：`.vscode/tasks.json`
+  - 檢查結果：已建立備份 `backup\\.vscode_tasks.json\\.vscode_tasks.json.20260306_134945.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_134528.bak`、`backup\\DevLog.md\\DevLog.md.20260306_134945.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - `launch.json` 加入：
+    - `preLaunchTask: "Build Debug (CMake Preset)"`
+  - 新增 `.vscode/tasks.json`：
+    - 建立任務 `Build Debug (CMake Preset)`。
+    - 直接指定本機 STM32CubeIDE 內建 `cmake.exe` 完整路徑，避免 PATH 依賴。
+  - 驗證建置：
+    - `cmake.exe --build --preset Debug` 成功，`F411_ESC_Test.elf` 重連結完成。
+- 預期效果：
+  - 每次 F5 前都會先重建最新 ELF，減少停在舊行號/錯誤行號映射的情況。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修正，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 13:56:30] 作業紀錄 #015 - UART 命令容錯修正（STATUS/ARM 字串清理）
+- 目的：
+  - 修正使用者回報：`STATUS` 被判定無效，但 `ARM` 可用的現象。
+- 觸發原因：
+  - 命令比對採嚴格 `strcmp`，若輸入包含前後空白或尾端 `:`（例如 `STATUS:`），會落入 unknown command。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\\Core_Src_main.c\\Core_Src_main.c.20260306_135629.bak`。
+  - 備份份數：`4`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_135629.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 新增 `UART_SanitizeCommand()`：
+    - 去除前導空白。
+    - 去除尾端空白/Tab/冒號 `:`。
+  - 在 `UART_ProcessInput()` 流程中，於 `UART_NormalizeCommand()` 後追加 `UART_SanitizeCommand()`，再送入 `ESC_ProcessCommand()`。
+- 結果：
+  - `STATUS`, `STATUS `, `STATUS:`, ` ARM ` 等輸入可被正確解析。
+  - 不影響既有 `PWM <...>`、`DUTY <...>`、快捷數值命令流程。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修正，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 14:01:59] 作業紀錄 #016 - 修正 UART 無反應與 PWM 頻率 50Hz 問題
+- 目的：
+  - 回應使用者量測結果：
+    - `PWM 1200/1500/1800` 無反應。
+    - PWM 頻率為 50Hz，需求為 400Hz。
+    - Duty 調整功能正常。
+- 觸發原因：
+  - 使用者可能用 `/` 連續輸入多個命令，原流程未將 `/` 當作命令結束符。
+  - TIM3 仍為 CubeMX 預設 50Hz 設定（`Prescaler=99`, `Period=19999`）。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\\Core_Src_main.c\\Core_Src_main.c.20260306_140159.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+  - 目標檔案：`Core/Src/tim.c`
+  - 檢查結果：已建立備份 `backup\\Core_Src_tim.c\\Core_Src_tim.c.20260306_140159.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_140159.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - `main.c`
+    - `UART_ProcessInput()`：新增將 `/` 視為命令結束符，支援連續命令。
+    - 啟動提示新增示例：`ARM/PWM 1200/PWM 1500`。
+  - `tim.c`
+    - 將 `TIM3` 週期從 `19999` 改為 `2499`，在 `Prescaler=99` 下對應 400Hz。
+- 驗證結果：
+  - 程式語法檢查無新增錯誤。
+- 使用說明：
+  - 可單條送：`ARM`、`PWM 1200`。
+  - 可連續送：`ARM/PWM 1200/PWM 1500/PWM 1800`。
+  - 仍保留 `ARM` 安全門檻與 `STOP/CLEAR` 保護流程。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修正，尚未推送，待使用者確認後再 push。
+
+## [2026-03-06 14:06:00] 作業紀錄 #017 - 使用者確認後執行提交與推送
+- 目的：
+  - 依使用者指示，將目前已驗證功能整理提交並推送至遠端。
+- 觸發原因：
+  - 使用者回覆「可以了 幫我先推送」。
+- 事前備份檢查：
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_140559.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 僅提交本次功能與設定相關檔案。
+  - 排除本機/中間產物（如 `build/`、`.settings/`）。
+- 結果：
+  - 由本次提交與推送命令結果決定（見後續終端輸出）。

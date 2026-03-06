@@ -28,11 +28,20 @@
 
 #include <string.h>
 #include <stdint.h>
+#include <ctype.h>
+#include <stdlib.h>
 
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
+
+typedef enum
+{
+  ESC_STATE_DISARMED = 0,
+  ESC_STATE_ARMED,
+  ESC_STATE_ESTOP
+} ESC_State_t;
 
 /* USER CODE END PTD */
 
@@ -60,6 +69,7 @@
 static uint16_t g_escPulseUs = ESC_PULSE_MIN_US;
 static char g_uartCmdBuffer[UART_CMD_BUFFER_SIZE];
 static uint8_t g_uartCmdIndex = 0U;
+static ESC_State_t g_escState = ESC_STATE_DISARMED;
 
 /* USER CODE END PV */
 
@@ -69,8 +79,14 @@ void SystemClock_Config(void);
 
 static void UART_SendString(const char *text);
 static uint16_t ESC_ClampPulseUs(uint16_t pulseUs);
+static void ESC_ApplyPulseUs(uint16_t pulseUs);
 static void ESC_SetPulseUs(uint16_t pulseUs);
+static void ESC_SetDutyPercent(uint8_t dutyPercent);
+static void ESC_SetState(ESC_State_t state);
 static void ESC_EmergencyStop(void);
+static void UART_NormalizeCommand(char *cmd);
+static void UART_SanitizeCommand(char *cmd);
+static uint8_t UART_TryParseUint16(const char *text, uint16_t *outValue);
 static void ESC_ProcessCommand(const char *cmd);
 static void UART_ProcessInput(void);
 
@@ -99,22 +115,202 @@ static uint16_t ESC_ClampPulseUs(uint16_t pulseUs)
   return pulseUs;
 }
 
-static void ESC_SetPulseUs(uint16_t pulseUs)
+static void ESC_ApplyPulseUs(uint16_t pulseUs)
 {
   g_escPulseUs = ESC_ClampPulseUs(pulseUs);
   __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, g_escPulseUs);
 }
 
+static void ESC_SetPulseUs(uint16_t pulseUs)
+{
+  ESC_ApplyPulseUs(pulseUs);
+}
+
+static void ESC_SetDutyPercent(uint8_t dutyPercent)
+{
+  uint32_t arr = __HAL_TIM_GET_AUTORELOAD(&htim3);
+  uint32_t compare = ((arr + 1UL) * dutyPercent) / 100UL;
+
+  if (compare > arr)
+  {
+    compare = arr;
+  }
+
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, (uint16_t)compare);
+}
+
+static void ESC_SetState(ESC_State_t state)
+{
+  g_escState = state;
+
+  if (state == ESC_STATE_ESTOP)
+  {
+    __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ESC_PULSE_ESTOP_US);
+    return;
+  }
+
+  ESC_ApplyPulseUs(ESC_PULSE_MIN_US);
+}
+
 static void ESC_EmergencyStop(void)
 {
-  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ESC_PULSE_ESTOP_US);
+  ESC_SetState(ESC_STATE_ESTOP);
   UART_SendString("ESTOP: PWM=0us\r\n");
+}
+
+static void UART_NormalizeCommand(char *cmd)
+{
+  uint8_t i = 0U;
+
+  while ((cmd[i] != '\0') && (i < (UART_CMD_BUFFER_SIZE - 1U)))
+  {
+    cmd[i] = (char)toupper((unsigned char)cmd[i]);
+    i++;
+  }
+}
+
+static void UART_SanitizeCommand(char *cmd)
+{
+  uint8_t start = 0U;
+  uint8_t end = (uint8_t)strlen(cmd);
+  uint8_t i = 0U;
+
+  while ((cmd[start] == ' ') || (cmd[start] == '\t'))
+  {
+    start++;
+  }
+
+  while (end > start)
+  {
+    char tail = cmd[end - 1U];
+    if ((tail == ' ') || (tail == '\t') || (tail == ':'))
+    {
+      end--;
+    }
+    else
+    {
+      break;
+    }
+  }
+
+  while ((start + i) < end)
+  {
+    cmd[i] = cmd[start + i];
+    i++;
+  }
+
+  cmd[i] = '\0';
+}
+
+static uint8_t UART_TryParseUint16(const char *text, uint16_t *outValue)
+{
+  char *endPtr = NULL;
+  unsigned long parsed = strtoul(text, &endPtr, 10);
+
+  if ((text == endPtr) || (*endPtr != '\0') || (parsed > 65535UL))
+  {
+    return 0U;
+  }
+
+  *outValue = (uint16_t)parsed;
+  return 1U;
 }
 
 static void ESC_ProcessCommand(const char *cmd)
 {
+  uint16_t parsedValue = 0U;
+
+  if (strcmp(cmd, "ARM") == 0)
+  {
+    if (g_escState == ESC_STATE_ESTOP)
+    {
+      UART_SendString("ERR: in ESTOP, use CLEAR first\r\n");
+      return;
+    }
+
+    ESC_SetState(ESC_STATE_ARMED);
+    UART_SendString("OK: ARMED, PWM=1000us\r\n");
+    return;
+  }
+
+  if (strcmp(cmd, "DISARM") == 0)
+  {
+    ESC_SetState(ESC_STATE_DISARMED);
+    UART_SendString("OK: DISARMED, PWM=1000us\r\n");
+    return;
+  }
+
+  if ((strcmp(cmd, "CLEAR") == 0) || (strcmp(cmd, "RESET") == 0))
+  {
+    if (g_escState == ESC_STATE_ESTOP)
+    {
+      ESC_SetState(ESC_STATE_DISARMED);
+      UART_SendString("OK: ESTOP cleared, now DISARMED\r\n");
+    }
+    else
+    {
+      UART_SendString("OK: no ESTOP, state unchanged\r\n");
+    }
+    return;
+  }
+
+  if (strcmp(cmd, "STATUS") == 0)
+  {
+    if (g_escState == ESC_STATE_ARMED)
+    {
+      UART_SendString("STATE: ARMED\r\n");
+    }
+    else if (g_escState == ESC_STATE_DISARMED)
+    {
+      UART_SendString("STATE: DISARMED\r\n");
+    }
+    else
+    {
+      UART_SendString("STATE: ESTOP\r\n");
+    }
+    return;
+  }
+
+  if ((strncmp(cmd, "PWM ", 4) == 0) && UART_TryParseUint16(&cmd[4], &parsedValue))
+  {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
+    ESC_SetPulseUs(parsedValue);
+    UART_SendString("OK: PWM set by pulse(us)\r\n");
+    return;
+  }
+
+  if ((strncmp(cmd, "DUTY ", 5) == 0) && UART_TryParseUint16(&cmd[5], &parsedValue))
+  {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
+    if (parsedValue > 100U)
+    {
+      UART_SendString("ERR: DUTY range 0..100\r\n");
+      return;
+    }
+
+    ESC_SetDutyPercent((uint8_t)parsedValue);
+    UART_SendString("OK: PWM set by duty(%)\r\n");
+    return;
+  }
+
   if ((strcmp(cmd, "1000") == 0) || (strcmp(cmd, "1") == 0))
   {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
     ESC_SetPulseUs(ESC_PULSE_MIN_US);
     UART_SendString("OK: PWM=1000us\r\n");
     return;
@@ -122,6 +318,12 @@ static void ESC_ProcessCommand(const char *cmd)
 
   if ((strcmp(cmd, "1500") == 0) || (strcmp(cmd, "5") == 0))
   {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
     ESC_SetPulseUs(ESC_PULSE_MID_US);
     UART_SendString("OK: PWM=1500us\r\n");
     return;
@@ -129,19 +331,44 @@ static void ESC_ProcessCommand(const char *cmd)
 
   if ((strcmp(cmd, "2000") == 0) || (strcmp(cmd, "2") == 0))
   {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
     ESC_SetPulseUs(ESC_PULSE_MAX_US);
     UART_SendString("OK: PWM=2000us\r\n");
     return;
   }
 
   if ((strcmp(cmd, "STOP") == 0) || (strcmp(cmd, "ESTOP") == 0) ||
-      (strcmp(cmd, "S") == 0) || (strcmp(cmd, "s") == 0))
+      (strcmp(cmd, "S") == 0))
   {
     ESC_EmergencyStop();
     return;
   }
 
-  UART_SendString("ERR: cmd? use 1000/1500/2000/STOP\r\n");
+  if (UART_TryParseUint16(cmd, &parsedValue))
+  {
+    if (g_escState != ESC_STATE_ARMED)
+    {
+      UART_SendString("ERR: not ARMED, use ARM first\r\n");
+      return;
+    }
+
+    if ((parsedValue < ESC_PULSE_MIN_US) || (parsedValue > ESC_PULSE_MAX_US))
+    {
+      UART_SendString("ERR: raw number range 1000..2000\r\n");
+      return;
+    }
+
+    ESC_SetPulseUs(parsedValue);
+    UART_SendString("OK: PWM set by raw number\r\n");
+    return;
+  }
+
+  UART_SendString("ERR: cmd? ARM/DISARM/STATUS/PWM <1000..2000>/DUTY <0..100>/STOP/CLEAR\r\n");
 }
 
 static void UART_ProcessInput(void)
@@ -153,11 +380,13 @@ static void UART_ProcessInput(void)
     return;
   }
 
-  if ((rxChar == '\r') || (rxChar == '\n'))
+  if ((rxChar == '\r') || (rxChar == '\n') || (rxChar == '/'))
   {
     if (g_uartCmdIndex > 0U)
     {
       g_uartCmdBuffer[g_uartCmdIndex] = '\0';
+      UART_NormalizeCommand(g_uartCmdBuffer);
+      UART_SanitizeCommand(g_uartCmdBuffer);
       ESC_ProcessCommand(g_uartCmdBuffer);
       g_uartCmdIndex = 0U;
     }
@@ -222,8 +451,10 @@ int main(void)
     Error_Handler();
   }
 
-  ESC_SetPulseUs(ESC_PULSE_MIN_US);
-  UART_SendString("ESC ready: 1000us, cmd=1000/1500/2000/STOP\r\n");
+  ESC_SetState(ESC_STATE_DISARMED);
+  UART_SendString("ESC ready: DISARMED(1000us). Use ARM first.\r\n");
+  UART_SendString("Ctrl: PWM <1000..2000>, DUTY <0..100>, DISARM/STOP/CLEAR/STATUS\r\n");
+  UART_SendString("Tip: use '/' to chain commands, e.g. ARM/PWM 1200/PWM 1500\r\n");
 
   /* USER CODE END 2 */
 

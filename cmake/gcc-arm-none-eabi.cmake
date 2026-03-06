@@ -1,19 +1,32 @@
 set(CMAKE_SYSTEM_NAME               Generic)
 set(CMAKE_SYSTEM_PROCESSOR          arm)
 
+if(WIN32)
+	set(TOOL_EXE_SUFFIX             ".exe")
+else()
+	set(TOOL_EXE_SUFFIX             "")
+endif()
+
 set(CMAKE_C_COMPILER_ID GNU)
 set(CMAKE_CXX_COMPILER_ID GNU)
 
 # Some default GCC settings
 # arm-none-eabi- must be part of path environment
-set(TOOLCHAIN_PREFIX                arm-none-eabi-)
+set(STM32CUBEIDE_GCC_BIN            "C:/ST/STM32CubeIDE_1.18.1/STM32CubeIDE/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.14.3.rel1.win32_1.0.100.202602081740/tools/bin/")
 
-set(CMAKE_C_COMPILER                ${TOOLCHAIN_PREFIX}gcc)
+if(EXISTS "${STM32CUBEIDE_GCC_BIN}arm-none-eabi-gcc.exe")
+	# Prefer a deterministic local toolchain path when PATH is not configured.
+	set(TOOLCHAIN_PREFIX            "${STM32CUBEIDE_GCC_BIN}arm-none-eabi-")
+else()
+	set(TOOLCHAIN_PREFIX            arm-none-eabi-)
+endif()
+
+set(CMAKE_C_COMPILER                ${TOOLCHAIN_PREFIX}gcc${TOOL_EXE_SUFFIX})
 set(CMAKE_ASM_COMPILER              ${CMAKE_C_COMPILER})
-set(CMAKE_CXX_COMPILER              ${TOOLCHAIN_PREFIX}g++)
-set(CMAKE_LINKER                    ${TOOLCHAIN_PREFIX}g++)
-set(CMAKE_OBJCOPY                   ${TOOLCHAIN_PREFIX}objcopy)
-set(CMAKE_SIZE                      ${TOOLCHAIN_PREFIX}size)
+set(CMAKE_CXX_COMPILER              ${TOOLCHAIN_PREFIX}g++${TOOL_EXE_SUFFIX})
+set(CMAKE_LINKER                    ${TOOLCHAIN_PREFIX}g++${TOOL_EXE_SUFFIX})
+set(CMAKE_OBJCOPY                   ${TOOLCHAIN_PREFIX}objcopy${TOOL_EXE_SUFFIX})
+set(CMAKE_SIZE                      ${TOOLCHAIN_PREFIX}size${TOOL_EXE_SUFFIX})
 
 set(CMAKE_EXECUTABLE_SUFFIX_ASM     ".elf")
 set(CMAKE_EXECUTABLE_SUFFIX_C       ".elf")
