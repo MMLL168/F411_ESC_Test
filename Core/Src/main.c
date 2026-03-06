@@ -451,8 +451,9 @@ int main(void)
     Error_Handler();
   }
 
-  ESC_SetState(ESC_STATE_DISARMED);
-  UART_SendString("ESC ready: DISARMED(1000us). Use ARM first.\r\n");
+  ESC_SetState(ESC_STATE_ARMED);
+  ESC_SetPulseUs(ESC_PULSE_MID_US);
+  UART_SendString("ESC ready: ARMED(1500us) for connection test.\r\n");
   UART_SendString("Ctrl: PWM <1000..2000>, DUTY <0..100>, DISARM/STOP/CLEAR/STATUS\r\n");
   UART_SendString("Tip: use '/' to chain commands, e.g. ARM/PWM 1200/PWM 1500\r\n");
 

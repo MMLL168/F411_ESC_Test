@@ -493,3 +493,41 @@
   - 提交並推送到 `origin/main`。
 - 結果：
   - 由後續 git 提交與推送輸出確認。
+
+## [2026-03-06 14:25:05] 作業紀錄 #019 - 上電預設改為 PWM 1500us（ESC 連線測試）
+- 目的：
+  - 依使用者要求，上電後預設輸出改為 `PWM 1500us`，用於 ESC 連線測試。
+- 觸發原因：
+  - 使用者明確要求：「改成預設一上電是 PWM 1500us」。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\\Core_Src_main.c\\Core_Src_main.c.20260306_142505.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_142505.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - `main.c` 初始化段調整：
+    - `ESC_SetState(ESC_STATE_ARMED);`
+    - `ESC_SetPulseUs(ESC_PULSE_MID_US);`
+  - 啟動訊息改為 `ARMED(1500us) for connection test`。
+- 驗證結果：
+  - `main.c` 語法/問題檢查：`No errors found`。
+  - `cmake --build --preset Debug` 成功，`F411_ESC_Test.elf` 已重連結。
+- Git 流程：
+  - 依使用者偏好，本次僅本地修改，待使用者確認後再決定是否推送。
+
+## [2026-03-06 14:27:36] 作業紀錄 #020 - 使用者確認後推送上電 1500us 版本
+- 目的：
+  - 依使用者指示，將「上電預設 1500us」相關修改推送到遠端。
+- 觸發原因：
+  - 使用者回覆「好 請推上遠端」。
+- 事前備份檢查：
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\\DevLog.md\\DevLog.md.20260306_142736.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 提交本次已修改之來源與相關已追蹤建置產物。
+  - 推送至 `origin/main`。
+- 結果：
+  - 由本次 git commit/push 輸出確認。
