@@ -96,3 +96,47 @@
   - `backup/` 已由未追蹤項目轉為被忽略，Git 狀態更乾淨。
 - 後續處置：
   - 若未來新增其他本地暫存或工具產物，應同步更新 `.gitignore` 並登錄 DevLog。
+
+## [2026-03-06 10:20:15] 作業紀錄 #005 - 實作 ESC PWM 控制與 UART 指令
+- 目的：
+  - 在 `main.c` 補上 ESC PWM 啟動流程、脈寬設定函式（含安全範圍限制），並提供 UART 簡易命令控制。
+- 觸發原因：
+  - 使用者要求直接進行下一步功能實作：`1000/1500/2000us` 與 `急停` 指令。
+- 事前備份檢查：
+  - 目標檔案：`Core/Src/main.c`
+  - 檢查結果：已建立備份 `backup\Core_Src_main.c\Core_Src_main.c.20260306_101904.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_101904.bak`。
+  - 備份份數：`3`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - `main.c` 新增 ESC 相關常數與狀態：
+    - `ESC_PULSE_MIN_US=1000`、`ESC_PULSE_MID_US=1500`、`ESC_PULSE_MAX_US=2000`、`ESC_PULSE_ESTOP_US=0`
+    - 新增命令緩衝與索引，避免直接逐字元觸發。
+  - `main.c` 新增函式：
+    - `ESC_ClampPulseUs()`：限制脈寬在 1000~2000us。
+    - `ESC_SetPulseUs()`：更新 TIM3 Compare 值。
+    - `ESC_EmergencyStop()`：立即將 PWM compare 設為 0 並回傳狀態字串。
+    - `ESC_ProcessCommand()`：解析 `1000/1500/2000/STOP`（含簡寫 `1/5/2/S`）。
+    - `UART_ProcessInput()`：以 polling 收字元、遇 `CR/LF` 觸發指令解析。
+    - `UART_SendString()`：回傳操作結果。
+  - 初始化流程調整：
+    - 在 `MX_TIM3_Init()` 後啟動 `HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1)`。
+    - 開機先設為 `1000us` 安全值並送出提示訊息。
+  - 主迴圈調整：
+    - 在 `while(1)` 持續呼叫 `UART_ProcessInput()`。
+  - 相依性修正：
+    - 新增標頭 `#include <stdint.h>`，確保固定寬度型別可用。
+- 驗證結果：
+  - 針對 `main.c` 的語意錯誤檢查中，新增邏輯本身未再出現 `uint8_t/uint16_t` 相關錯誤。
+  - 剩餘錯誤為既有 HAL 巨集索引問題（`__IO`、`FLASH_LATENCY_3` 等），屬環境/索引設定現象，非本次邏輯新增導致。
+- 使用方式（UART）：
+  - 輸入 `1000` 或 `1` + Enter：設定 1000us。
+  - 輸入 `1500` 或 `5` + Enter：設定 1500us。
+  - 輸入 `2000` 或 `2` + Enter：設定 2000us。
+  - 輸入 `STOP` / `ESTOP` / `S` + Enter：急停（PWM compare=0）。
+- 風險與限制：
+  - 目前 UART 採 polling，若後續要擴展高頻控制，建議改為中斷或 DMA 收包。
+  - 急停目前定義為 compare=0，若特定 ESC 需最小油門脈寬停止（例如 1000us），可再調整策略。
+- 後續處置：
+  - 建議下一步加入 arming 狀態機與指令白名單（未解鎖僅允許安全命令）。

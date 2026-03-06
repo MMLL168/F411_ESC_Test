@@ -26,6 +26,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include <string.h>
+#include <stdint.h>
+
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -35,6 +38,13 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+
+#define ESC_PULSE_MIN_US            1000U
+#define ESC_PULSE_MID_US            1500U
+#define ESC_PULSE_MAX_US            2000U
+#define ESC_PULSE_ESTOP_US          0U
+#define UART_RX_TIMEOUT_MS          10U
+#define UART_CMD_BUFFER_SIZE        16U
 
 /* USER CODE END PD */
 
@@ -47,16 +57,128 @@
 
 /* USER CODE BEGIN PV */
 
+static uint16_t g_escPulseUs = ESC_PULSE_MIN_US;
+static char g_uartCmdBuffer[UART_CMD_BUFFER_SIZE];
+static uint8_t g_uartCmdIndex = 0U;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 /* USER CODE BEGIN PFP */
 
+static void UART_SendString(const char *text);
+static uint16_t ESC_ClampPulseUs(uint16_t pulseUs);
+static void ESC_SetPulseUs(uint16_t pulseUs);
+static void ESC_EmergencyStop(void);
+static void ESC_ProcessCommand(const char *cmd);
+static void UART_ProcessInput(void);
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+static void UART_SendString(const char *text)
+{
+  HAL_UART_Transmit(&huart2, (uint8_t *)text, (uint16_t)strlen(text), 100U);
+}
+
+static uint16_t ESC_ClampPulseUs(uint16_t pulseUs)
+{
+  if (pulseUs < ESC_PULSE_MIN_US)
+  {
+    return ESC_PULSE_MIN_US;
+  }
+
+  if (pulseUs > ESC_PULSE_MAX_US)
+  {
+    return ESC_PULSE_MAX_US;
+  }
+
+  return pulseUs;
+}
+
+static void ESC_SetPulseUs(uint16_t pulseUs)
+{
+  g_escPulseUs = ESC_ClampPulseUs(pulseUs);
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, g_escPulseUs);
+}
+
+static void ESC_EmergencyStop(void)
+{
+  __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, ESC_PULSE_ESTOP_US);
+  UART_SendString("ESTOP: PWM=0us\r\n");
+}
+
+static void ESC_ProcessCommand(const char *cmd)
+{
+  if ((strcmp(cmd, "1000") == 0) || (strcmp(cmd, "1") == 0))
+  {
+    ESC_SetPulseUs(ESC_PULSE_MIN_US);
+    UART_SendString("OK: PWM=1000us\r\n");
+    return;
+  }
+
+  if ((strcmp(cmd, "1500") == 0) || (strcmp(cmd, "5") == 0))
+  {
+    ESC_SetPulseUs(ESC_PULSE_MID_US);
+    UART_SendString("OK: PWM=1500us\r\n");
+    return;
+  }
+
+  if ((strcmp(cmd, "2000") == 0) || (strcmp(cmd, "2") == 0))
+  {
+    ESC_SetPulseUs(ESC_PULSE_MAX_US);
+    UART_SendString("OK: PWM=2000us\r\n");
+    return;
+  }
+
+  if ((strcmp(cmd, "STOP") == 0) || (strcmp(cmd, "ESTOP") == 0) ||
+      (strcmp(cmd, "S") == 0) || (strcmp(cmd, "s") == 0))
+  {
+    ESC_EmergencyStop();
+    return;
+  }
+
+  UART_SendString("ERR: cmd? use 1000/1500/2000/STOP\r\n");
+}
+
+static void UART_ProcessInput(void)
+{
+  uint8_t rxChar = 0U;
+
+  if (HAL_UART_Receive(&huart2, &rxChar, 1U, UART_RX_TIMEOUT_MS) != HAL_OK)
+  {
+    return;
+  }
+
+  if ((rxChar == '\r') || (rxChar == '\n'))
+  {
+    if (g_uartCmdIndex > 0U)
+    {
+      g_uartCmdBuffer[g_uartCmdIndex] = '\0';
+      ESC_ProcessCommand(g_uartCmdBuffer);
+      g_uartCmdIndex = 0U;
+    }
+    return;
+  }
+
+  if ((rxChar < 32U) || (rxChar > 126U))
+  {
+    return;
+  }
+
+  if (g_uartCmdIndex < (UART_CMD_BUFFER_SIZE - 1U))
+  {
+    g_uartCmdBuffer[g_uartCmdIndex++] = (char)rxChar;
+  }
+  else
+  {
+    g_uartCmdIndex = 0U;
+    UART_SendString("ERR: cmd too long\r\n");
+  }
+}
 
 /* USER CODE END 0 */
 
@@ -95,6 +217,14 @@ int main(void)
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
 
+  if (HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  ESC_SetPulseUs(ESC_PULSE_MIN_US);
+  UART_SendString("ESC ready: 1000us, cmd=1000/1500/2000/STOP\r\n");
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -104,6 +234,7 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    UART_ProcessInput();
   }
   /* USER CODE END 3 */
 }
