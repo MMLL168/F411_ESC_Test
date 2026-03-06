@@ -47,3 +47,33 @@
   - 若後續以不同檔名（例如 `Devlog.md`）並存，可能導致紀錄分散；目前統一使用 `DevLog.md`。
 - 後續處置：
   - 後續任何檔案修改完成後，皆需在此檔新增一筆紀錄，並維持格式一致性。
+
+## [2026-03-06 10:13:15] 作業紀錄 #003 - 建立 GitHub 遠端連結並完成首次推送
+- 目的：
+  - 依使用者要求，將本地專案與 GitHub 倉庫 `https://github.com/MMLL168/F411_ESC_Test.git` 建立連結並推送。
+- 觸發原因：
+  - 專案先前未初始化 Git，無法進行版本追蹤與遠端備份。
+- 事前備份檢查：
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_101307.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 執行初始化與綁定：
+    - `git init`
+    - `git branch -M main`
+    - `git remote add origin https://github.com/MMLL168/F411_ESC_Test.git`
+  - 執行提交與推送：
+    - `git add -A`
+    - `git commit -m "Initial commit"`
+    - `git push -u origin main`
+  - 推送後驗證：
+    - `git log -1 --oneline` -> `3b4187c (HEAD -> main, origin/main) Initial commit`
+    - `git remote -v` -> `origin https://github.com/MMLL168/F411_ESC_Test.git (fetch/push)`
+    - `git status -sb` -> `## main...origin/main`，另有未追蹤 `backup/`
+- 結果：
+  - 已成功推送至遠端 `origin/main`，本地分支 `main` 已追蹤 `origin/main`。
+- 問題與處置：
+  - 出現大量 `LF will be replaced by CRLF` 警告，屬 Windows 換行符正規化提醒，非推送失敗。
+  - 目前 `backup/` 目錄為未追蹤狀態，後續可視需求加入 `.gitignore` 以避免誤提交。
+- 後續處置：
+  - 後續若有新修改，建議沿用流程：修改前備份 -> 更新 `DevLog.md` -> 提交與推送。
