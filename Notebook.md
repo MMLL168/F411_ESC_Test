@@ -33,7 +33,7 @@
   - 目前主迴圈為空，尚未加入 ESC 控制流程。
 - `Core/Src/tim.c`
   - `TIM2`：`Period=166`，PWM CH1，並掛接 DMA（`DMA1_Stream5/Channel3`，M2P，halfword）。
-  - `TIM3`：`Prescaler=99`、`Period=19999`，對應 1MHz 計數基準與 20ms 週期（50Hz），`Pulse=1500`。
+  - `TIM3`：`Prescaler=99`、`Period=2499`，對應 1MHz 計數基準與 2.5ms 週期（400Hz），`Pulse=1500`。
 - `Core/Src/dma.c`
   - 啟用 DMA1 時鐘與 `DMA1_Stream5_IRQn` 中斷。
 - `Core/Src/stm32f4xx_it.c`
@@ -47,11 +47,11 @@
 
 ## 4. 目前程式狀態判讀
 - 已完成時鐘、GPIO、DMA、PWM、UART 的初始化骨架。
-- 目前尚未看到：
-  - 啟動 PWM 的程式（例如 `HAL_TIM_PWM_Start` / `HAL_TIM_PWM_Start_DMA`）。
-  - ESC 解鎖（arming）流程與油門斜率控制。
-  - UART 指令解析或遙測回傳。
-  - 保護機制（失聯保護、範圍限制、錯誤回復）。
+- 已實作功能：
+  - **PWM 控制**：支援 1000~2000us 脈寬控制，頻率 400Hz。
+  - **DSHOT 控制**：支援 DSHOT150/300/600/1200 協定，包含特殊命令與遙測位。
+  - **UART 命令介面**：支援 `ARM/DISARM`、`PWM/DUTY`、`DSHOT` 等指令。
+  - **安全機制**：具備 Arming 狀態機與緊急停止 (ESTOP) 功能。
 
 ## 5. 建議的後續實作方向
 - 在 `main.c` 使用者區塊補上：
@@ -68,3 +68,79 @@
 ## 6. 判讀依據
 - 主要依據：`F411_ESC_Test.ioc`、`Core/Src/main.c`、`Core/Src/tim.c`、`Core/Src/dma.c`、`Core/Src/usart.c`、`Core/Src/stm32f4xx_it.c`、`CMakeLists.txt`、`cmake/stm32cubemx/CMakeLists.txt`、`CMakePresets.json`。
 - 本文件是以目前版本程式的靜態分析結果整理，後續若加入 user code，需同步更新。
+
+## 7. 學習筆記 - DSHOT 協定實作細節
+### 7.1 DSHOT 訊號原理
+- **數位協定**：不同於傳統 PWM 依賴脈寬長度，DSHOT 是純數位訊號，抗干擾能力更強。
+- **編碼方式**：透過 PWM 的佔空比 (Duty Cycle) 來表示位元 `0` 與 `1`。
+  - `0`：佔空比約 37.5% (T0H)。
+  - `1`：佔空比約 75.0% (T1H)。
+
+### 7.2 STM32 實作機制 (TIM + DMA)
+- **核心思路**：不使用 GPIO Bit-banging，而是利用 Timer 的 PWM 功能產生精確波形，並透過 DMA 自動搬運數據，釋放 CPU 資源。
+- **DMA Buffer 設計**：
+  - 每個 DSHOT 封包為 16 bits。
+  - 為了用 PWM 模擬這 16 bits，我們建立一個大小為 18 的 `uint16_t` 陣列。
+  - 前 16 個字組填入對應 `0` 或 `1` 的 Compare 值 (CCR)。
+  - 最後 2 個字組填入 `0`，確保傳輸結束後 PWM 輸出維持在低電位 (Idle Low)。
+
+### 7.3 封包結構
+- **總長度**：16 bits
+  - **Throttle (11 bits)**：油門數值 (0-2047)。其中 0-47 為特殊命令，48-2047 為油門。
+  - **Telemetry (1 bit)**：遙測請求位。若設為 1，ESC 會在收到封包後回傳數據。
+  - **CRC (4 bits)**：校驗碼，計算公式：`CRC = (Value ^ (Value >> 4) ^ (Value >> 8)) & 0x0F`。
+
+## 7. 學習筆記 - DSHOT 協定實作細節
+### 7.1 DSHOT 訊號原理
+- **數位協定**：不同於傳統 PWM 依賴脈寬長度，DSHOT 是純數位訊號，抗干擾能力更強。
+- **編碼方式**：透過 PWM 的佔空比 (Duty Cycle) 來表示位元 `0` 與 `1`。
+  - `0`：佔空比約 37.5% (T0H)。
+  - `1`：佔空比約 75.0% (T1H)。
+
+### 7.2 STM32 實作機制 (TIM + DMA)
+- **核心思路**：不使用 GPIO Bit-banging，而是利用 Timer 的 PWM 功能產生精確波形，並透過 DMA 自動搬運數據，釋放 CPU 資源。
+- **DMA Buffer 設計**：
+  - 每個 DSHOT 封包為 16 bits。
+  - 為了用 PWM 模擬這 16 bits，我們建立一個大小為 18 的 `uint16_t` 陣列。
+  - 前 16 個字組填入對應 `0` 或 `1` 的 Compare 值 (CCR)。
+  - 最後 2 個字組填入 `0`，確保傳輸結束後 PWM 輸出維持在低電位 (Idle Low)。
+
+### 7.3 封包結構
+- **總長度**：16 bits
+  - **Throttle (11 bits)**：油門數值 (0-2047)。其中 0-47 為特殊命令，48-2047 為油門。
+  - **Telemetry (1 bit)**：遙測請求位。若設為 1，ESC 會在收到封包後回傳數據。
+  - **CRC (4 bits)**：校驗碼，計算公式：`CRC = (Value ^ (Value >> 4) ^ (Value >> 8)) & 0x0F`。
+
+## 8. UART 命令列表 (Command Reference)
+以下指令可透過序列埠終端機輸入 (Baud: 115200)，支援以 `/` 分隔多個指令 (例如 `ARM/PWM 1500`)。
+
+### 8.1 通用指令 (Common)
+- `ARM`：解鎖 ESC (允許輸出油門訊號)。
+- `DISARM`：上鎖 ESC (停止輸出或輸出安全值)。
+- `STOP` / `ESTOP` / `S`：緊急停止 (強制停止輸出，進入 ESTOP 狀態)。
+- `CLEAR` / `RESET`：清除 ESTOP 狀態，回到 DISARMED。
+- `STATUS`：顯示目前狀態、模式與 DSHOT Rate。
+- `MODE PWM`：切換至 PWM 模式 (50Hz/400Hz 視 Timer 設定)。
+- `MODE DSHOT`：切換至 DSHOT 模式。
+
+### 8.2 PWM 模式指令 (需先 `MODE PWM` 且 `ARM`)
+- `PWM <1000~2000>`：設定脈寬 (微秒)。
+- `DUTY <0~100>`：設定佔空比 (%)。
+- `1000` / `1`：設定為 1000us (Min)。
+- `1500` / `5`：設定為 1500us (Mid)。
+- `2000` / `2`：設定為 2000us (Max)。
+
+### 8.3 DSHOT 模式指令 (需先 `MODE DSHOT`)
+- `DSRATE <150|300|600|1200>`：設定傳輸速率 (預設 600)。
+- `DSHOT <48~2047>`：設定油門數值 (需 `ARM`)。
+- `DSCMD <0~47>`：發送特殊命令 (無需 `ARM`)。常用命令：
+  - `0`: Motor Stop
+  - `1-5`: Beep
+  - `7`: Spin Direction 1
+  - `8`: Spin Direction 2
+  - `12`: Save Settings (更改設定後必做)
+
+### 8.4 測試流程範例
+1. **PWM 測試**: `MODE PWM` -> `ARM` -> `PWM 1100` -> `PWM 1500` -> `DISARM`
+2. **DSHOT 測試**: `MODE DSHOT` -> `DSRATE 600` -> `ARM` -> `DSHOT 100` -> `DSHOT 500` -> `DISARM`
+3. **反轉設定**: `MODE DSHOT` -> `DSCMD 7` (或 8) -> `DSCMD 12` (儲存) -> 斷電重啟。

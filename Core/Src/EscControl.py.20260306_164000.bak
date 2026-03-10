@@ -1,0 +1,265 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+import serial
+import serial.tools.list_ports
+import threading
+import time
+
+class EscControlApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("ESC Control Center")
+        self.root.geometry("500x550")
+        
+        self.ser = None
+        self.is_connected = False
+        
+        # Serial Port Selection
+        self.port_frame = ttk.LabelFrame(root, text="Connection")
+        self.port_frame.pack(pady=5, padx=10, fill="x")
+        
+        self.port_label = ttk.Label(self.port_frame, text="Port:")
+        self.port_label.grid(row=0, column=0, padx=5, pady=5)
+        
+        self.port_combo = ttk.Combobox(self.port_frame, width=10)
+        self.port_combo.grid(row=0, column=1, padx=5, pady=5)
+        self.refresh_ports()
+        
+        self.baud_label = ttk.Label(self.port_frame, text="Baud:")
+        self.baud_label.grid(row=0, column=2, padx=5, pady=5)
+        self.baud_combo = ttk.Combobox(self.port_frame, values=["9600", "115200"], width=8)
+        self.baud_combo.current(1) # Default 115200
+        self.baud_combo.grid(row=0, column=3, padx=5, pady=5)
+        
+        self.btn_connect = ttk.Button(self.port_frame, text="Connect", command=self.toggle_connection)
+        self.btn_connect.grid(row=0, column=4, padx=5, pady=5)
+
+        # Mode Selection
+        self.mode_frame = ttk.LabelFrame(root, text="Mode Selection")
+        self.mode_frame.pack(pady=5, padx=10, fill="x")
+        self.mode_var = tk.StringVar(value="PWM")
+        
+        self.rb_pwm = ttk.Radiobutton(self.mode_frame, text="PWM", variable=self.mode_var, value="PWM", command=self.on_mode_change)
+        self.rb_pwm.pack(side="left", padx=20, pady=5)
+        
+        self.rb_dshot = ttk.Radiobutton(self.mode_frame, text="DSHOT", variable=self.mode_var, value="DSHOT", command=self.on_mode_change)
+        self.rb_dshot.pack(side="left", padx=20, pady=5)
+        
+        # PWM Control Area
+        self.pwm_frame = ttk.LabelFrame(root, text="PWM Control (1000-2000us)")
+        self.pwm_frame.pack(pady=5, padx=10, fill="x")
+        
+        self.lbl_pwm = ttk.Label(self.pwm_frame, text="PWM: 1000 us")
+        self.lbl_pwm.pack(pady=5)
+        
+        self.slider_pwm = ttk.Scale(self.pwm_frame, from_=1000, to=2000, orient="horizontal", command=self.on_pwm_slider_change)
+        self.slider_pwm.set(1000)
+        self.slider_pwm.pack(pady=5, padx=10, fill="x")
+
+        # DSHOT Control Area
+        self.dshot_frame = ttk.LabelFrame(root, text="DSHOT Control")
+        self.dshot_frame.pack(pady=5, padx=10, fill="x")
+
+        # DSHOT Rate
+        self.dshot_rate_frame = ttk.Frame(self.dshot_frame)
+        self.dshot_rate_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(self.dshot_rate_frame, text="Rate:").pack(side="left")
+        self.dshot_rate_combo = ttk.Combobox(self.dshot_rate_frame, values=["150", "300", "600", "1200"], width=6, state="readonly")
+        self.dshot_rate_combo.current(2) # 600
+        self.dshot_rate_combo.pack(side="left", padx=5)
+        ttk.Button(self.dshot_rate_frame, text="Set Rate", command=self.set_dshot_rate).pack(side="left")
+
+        # DSHOT Throttle
+        self.lbl_dshot = ttk.Label(self.dshot_frame, text="Throttle: 0")
+        self.lbl_dshot.pack(pady=5)
+        self.slider_dshot = ttk.Scale(self.dshot_frame, from_=48, to=2047, orient="horizontal", command=self.on_dshot_slider_change)
+        self.slider_dshot.set(48)
+        self.slider_dshot.pack(pady=5, padx=10, fill="x")
+
+        # DSHOT Commands
+        self.dshot_cmd_frame = ttk.Frame(self.dshot_frame)
+        self.dshot_cmd_frame.pack(fill="x", padx=5, pady=5)
+        ttk.Label(self.dshot_cmd_frame, text="CMD:").pack(side="left")
+        self.dshot_cmd_combo = ttk.Combobox(self.dshot_cmd_frame, values=[
+            "0: Motor Stop", "1: Beep1", "2: Beep2", "3: Beep3", "4: Beep4", "5: Beep5", 
+            "6: ESC Info", "7: Spin Dir 1", "8: Spin Dir 2", "9: 3D Mode Off", "10: 3D Mode On",
+            "12: Save Settings", "20: Start Bootloader", "21: Rotate Normal"
+        ], width=20, state="readonly")
+        self.dshot_cmd_combo.current(0)
+        self.dshot_cmd_combo.pack(side="left", padx=5)
+        ttk.Button(self.dshot_cmd_frame, text="Send", command=self.send_dshot_cmd).pack(side="left")
+        
+        # Buttons
+        self.btn_frame = ttk.Frame(root)
+        self.btn_frame.pack(pady=10)
+        
+        self.btn_arm = ttk.Button(self.btn_frame, text="ARM", command=self.send_arm)
+        self.btn_arm.grid(row=0, column=0, padx=10)
+        
+        self.btn_disarm = ttk.Button(self.btn_frame, text="DISARM", command=self.send_disarm)
+        self.btn_disarm.grid(row=0, column=1, padx=10)
+        
+        self.btn_stop = ttk.Button(root, text="EMERGENCY STOP", command=self.send_stop, style="Stop.TButton")
+        self.btn_stop.pack(pady=10, fill="x", padx=20)
+        
+        # Style for STOP button
+        self.style = ttk.Style()
+        self.style.configure("Stop.TButton", foreground="red", font=("Helvetica", 12, "bold"))
+
+        # Status Bar
+        self.status_var = tk.StringVar()
+        self.status_var.set("Disconnected")
+        self.status_bar = ttk.Label(root, textvariable=self.status_var, relief="sunken", anchor="w")
+        self.status_bar.pack(side="bottom", fill="x")
+
+        # Periodic sender
+        self.last_sent_pwm = -1
+        self.last_sent_dshot = -1
+        self.current_pwm_val = 1000
+        self.current_dshot_val = 0
+        self.running = True
+        self.thread = threading.Thread(target=self.sender_thread)
+        self.thread.daemon = True
+        self.thread.start()
+
+        self.update_ui_state()
+
+    def refresh_ports(self):
+        ports = [port.device for port in serial.tools.list_ports.comports()]
+        self.port_combo['values'] = ports
+        if ports:
+            self.port_combo.current(0)
+
+    def toggle_connection(self):
+        if not self.is_connected:
+            try:
+                port = self.port_combo.get()
+                baud = self.baud_combo.get()
+                self.ser = serial.Serial(port, baud, timeout=0.1)
+                self.is_connected = True
+                self.btn_connect.config(text="Disconnect")
+                self.status_var.set(f"Connected to {port}")
+                self.port_combo.config(state="disabled")
+                self.baud_combo.config(state="disabled")
+                # Send current mode on connect
+                self.on_mode_change()
+            except Exception as e:
+                messagebox.showerror("Connection Error", str(e))
+        else:
+            self.disconnect()
+
+    def disconnect(self):
+        if self.ser:
+            self.ser.close()
+        self.ser = None
+        self.is_connected = False
+        self.btn_connect.config(text="Connect")
+        self.status_var.set("Disconnected")
+        self.port_combo.config(state="normal")
+        self.baud_combo.config(state="normal")
+
+    def send_command(self, cmd):
+        if self.is_connected and self.ser:
+            try:
+                full_cmd = cmd + "\r\n"
+                self.ser.write(full_cmd.encode())
+                # print(f"Sent: {full_cmd.strip()}")
+            except Exception as e:
+                self.status_var.set(f"Send Error: {e}")
+                self.disconnect()
+
+    def on_mode_change(self):
+        mode = self.mode_var.get()
+        self.send_command(f"MODE {mode}")
+        self.status_var.set(f"Sent: MODE {mode}")
+        self.update_ui_state()
+        # Reset sliders
+        self.slider_pwm.set(1000)
+        self.slider_dshot.set(48)
+        self.current_pwm_val = 1000
+        self.current_dshot_val = 0
+        self.last_sent_pwm = -1
+        self.last_sent_dshot = -1
+
+    def update_ui_state(self):
+        mode = self.mode_var.get()
+        if mode == "PWM":
+            self.enable_frame(self.pwm_frame, True)
+            self.enable_frame(self.dshot_frame, False)
+        else:
+            self.enable_frame(self.pwm_frame, False)
+            self.enable_frame(self.dshot_frame, True)
+
+    def enable_frame(self, frame, enable):
+        state = "normal" if enable else "disabled"
+        for child in frame.winfo_children():
+            if isinstance(child, ttk.Frame):
+                self.enable_frame(child, enable)
+            else:
+                try:
+                    child.configure(state=state)
+                except:
+                    pass
+
+    def set_dshot_rate(self):
+        rate = self.dshot_rate_combo.get()
+        self.send_command(f"DSRATE {rate}")
+        self.status_var.set(f"Sent: DSRATE {rate}")
+
+    def send_dshot_cmd(self):
+        selection = self.dshot_cmd_combo.get()
+        cmd_val = selection.split(':')[0]
+        self.send_command(f"DSCMD {cmd_val}")
+        self.status_var.set(f"Sent: DSCMD {cmd_val}")
+
+    def send_arm(self):
+        self.send_command("ARM")
+        self.status_var.set("Sent: ARM")
+
+    def send_disarm(self):
+        self.send_command("DISARM")
+        self.slider_pwm.set(1000)
+        self.slider_dshot.set(48)
+        self.current_pwm_val = 1000
+        self.current_dshot_val = 0
+        self.status_var.set("Sent: DISARM")
+
+    def send_stop(self):
+        self.send_command("STOP")
+        self.slider_pwm.set(1000)
+        self.slider_dshot.set(48)
+        self.current_pwm_val = 1000
+        self.current_dshot_val = 0
+        self.status_var.set("Sent: STOP")
+
+    def on_pwm_slider_change(self, val):
+        self.current_pwm_val = int(float(val))
+        self.lbl_pwm.config(text=f"PWM: {self.current_pwm_val} us")
+
+    def on_dshot_slider_change(self, val):
+        self.current_dshot_val = int(float(val))
+        self.lbl_dshot.config(text=f"Throttle: {self.current_dshot_val}")
+
+    def sender_thread(self):
+        while self.running:
+            if self.is_connected:
+                mode = self.mode_var.get()
+                if mode == "PWM":
+                    if abs(self.current_pwm_val - self.last_sent_pwm) > 0:
+                        cmd = f"PWM {self.current_pwm_val}"
+                        self.send_command(cmd)
+                        self.last_sent_pwm = self.current_pwm_val
+                        time.sleep(0.05)
+                elif mode == "DSHOT":
+                    if abs(self.current_dshot_val - self.last_sent_dshot) > 0:
+                        cmd = f"DSHOT {self.current_dshot_val}"
+                        self.send_command(cmd)
+                        self.last_sent_dshot = self.current_dshot_val
+                        time.sleep(0.02) # DSHOT can be faster
+            
+            time.sleep(0.01)
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = EscControlApp(root)
+    root.mainloop()

@@ -17,7 +17,11 @@
       "interface": "swd",
       "serialNumber": "066EFF525750877267200844",
       "showDevDebugOutput": "raw",
-      "runToEntryPoint": "main"
+      "runToEntryPoint": "main",
+      "liveWatch": {
+        "enabled": true,
+        "samplesPerSecond": 4
+      }
     }
   ]
 }

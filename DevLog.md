@@ -531,3 +531,82 @@
   - 推送至 `origin/main`。
 - 結果：
   - 由本次 git commit/push 輸出確認。
+
+## [2026-03-06 15:00:00] 作業紀錄 #021 - 更新 Notebook.md 學習筆記
+- 目的：
+  - 依使用者要求，將 DSHOT 協定實作細節與 PWM 設定更新至專案筆記 `Notebook.md`。
+- 觸發原因：
+  - 專案已完成 DSHOT 實作與 PWM 頻率調整，需同步文件以利後續維護與學習。
+- 事前備份檢查：
+  - 目標檔案：`Notebook.md`
+  - 檢查結果：已建立備份 `backup\Notebook.md\Notebook.md.20260306_150000.bak`。
+  - 備份份數：`1`（符合最多保留 5 份規則）。
+  - 目標檔案：`DevLog.md`
+  - 檢查結果：已建立備份 `backup\DevLog.md\DevLog.md.20260306_150000.bak`。
+  - 備份份數：`5`（符合最多保留 5 份規則）。
+- 執行動作細節：
+  - 更新 `Notebook.md`：
+    - **PWM 設定更新**：修正 TIM3 頻率描述為 400Hz（Period=2499, Prescaler=99）。
+    - **新增 DSHOT 學習筆記**：
+      - 協定原理：數位編碼（0/1 佔空比）。
+      - 實作機制：TIM2 PWM + DMA Burst Transfer。
+      - 封包結構：16-bit (Throttle 11 + Telemetry 1 + CRC 4)。
+      - 緩衝區設計：16 words 資料 + 2 words 歸零 (Idle Low)。
+- 結果：
+  - `Notebook.md` 內容已更新，反映當前程式碼狀態與技術細節。
+
+## [2026-03-06 15:15:00] 作業紀錄 #022 - 修復 DSHOT 切回 PWM 模式無反應問題
+- 目的：
+  - 解決從 DSHOT 模式切換回 PWM 模式時，MCU 停止回應 (Hang) 的問題。
+- 觸發原因：
+  - 使用者回報 APP 切換模式後無反應。
+  - 經分析，`PWM_ConfigureTimer` 中使用了 `HAL_TIM_Base_DeInit` 搭配 `__HAL_RCC_TIM2_FORCE_RESET`。
+  - `DeInit` 會關閉 Timer 時鐘 (MspDeInit)，隨後執行 `FORCE_RESET` 可能導致暫存器操作異常或狀態不一致，引發 HardFault 或 Error_Handler。
+- 執行動作細節：
+  - 移除 `PWM_ConfigureTimer` 中的 `HAL_TIM_Base_DeInit` 與 `FORCE_RESET/RELEASE_RESET`。
+  - 改為直接停止 PWM/DMA 後，重新執行 `HAL_TIM_Base_Init` 覆蓋設定。
+  - 新增 `__HAL_TIM_SET_COUNTER(&htim2, 0)` 以防止切換時因 CNT > 新 Period 造成的輸出延遲。
+- 結果：
+  - 模式切換應可正常運作，不再導致 MCU 當機。
+- 後續處置：
+  - 建議使用者驗證切換後的 PWM 輸出是否立即生效。
+
+## [2026-03-06 15:30:00] 作業紀錄 #023 - 啟用 VS Code Live Watch 功能
+- 目的：
+  - 依使用者要求，在偵錯設定中啟用 Live Watch，以便即時監控變數狀態（如 `g_escMode`）。
+- 觸發原因：
+  - 使用者回報 Live Watch 功能尚未啟用。
+- 執行動作細節：
+  - 修改 `.vscode/launch.json`，在 Cortex-Debug 設定中加入 `"liveWatch": { "enabled": true, "samplesPerSecond": 4 }`。
+- 結果：
+  - 下次啟動偵錯 (F5) 時，VS Code 偵錯面板應會出現 LIVE WATCH 區塊。
+
+## [2026-03-06 15:45:00] 作業紀錄 #024 - 修復 DSHOT 傳輸阻塞與變數同步問題
+- 目的：
+  - 解決 DSHOT 模式下 UART 接收遲滯導致的指令遺漏，以及編譯器優化導致的變數狀態不同步。
+- 執行動作細節：
+  - `main.c`：
+    - 將全域狀態變數 (`g_escMode`, `g_escState` 等) 加上 `volatile` 修飾字。
+    - 移除 `DSHOT_SendCommand` 內的 `HAL_Delay(1)`，改於主迴圈使用 `HAL_GetTick` 進行非阻塞發送。
+  - `EscControl.py`：
+    - 將發送指令結尾由 `\r\n` 改為 `\n`，減少 UART 傳輸負擔。
+- 結果：
+  - 系統反應速度提升，模式切換與指令解析正常。
+
+## [2026-03-06 15:50:00] 作業紀錄 #025 - 執行階段性推送
+- 目的：
+  - 依使用者指示，將 DSHOT 修復與優化後的版本推送到遠端倉庫。
+- 執行動作細節：
+  - `git add .`
+  - `git commit -m "Fix: DSHOT non-blocking TX, volatile vars, and Python GUI update"`
+  - `git push origin main`
+
+## [2026-03-06 16:00:00] 作業紀錄 #026 - 依使用者指示推送最新版本
+- 目的：
+  - 將近期所有修復（DSHOT 模式切換、UART 非阻塞、Live Watch 啟用）合併提交並推送到遠端。
+- 觸發原因：
+  - 使用者確認功能正常並指示推送。
+- 執行動作細節：
+  - `git add .`
+  - `git commit -m "Feat: Implement DSHOT mode and fix related bugs"`
+  - `git push origin main`
